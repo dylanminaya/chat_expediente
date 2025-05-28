@@ -1,0 +1,40 @@
+Sample Document for Testing Claude Haiku 3.5 Document Analysis
+
+This is a test document that contains various types of information:
+
+1. Project Overview
+   - Name: AI Document Analysis System
+   - Status: In Development
+   - Team Size: 5 developers
+   - Timeline: 3 months
+
+2. Key Features
+   - Multi-format document support (PDF, TXT, JSON, etc.)
+   - Real-time analysis capabilities
+   - AWS Bedrock integration
+   - Interactive chat interface
+
+3. Technical Requirements
+   - Rust programming language
+   - AWS Bedrock API access
+   - Base64 encoding for document transmission
+   - Token usage optimization
+
+4. Performance Metrics
+   - Response time: < 2 seconds
+   - Supported file size: Up to 10MB
+   - Concurrent users: 100+
+   - Accuracy rate: 95%+
+
+5. Next Steps
+   - Complete document upload feature
+   - Add support for image analysis
+   - Implement batch processing
+   - Deploy to production environment
+
+This document can be used to test various analysis capabilities such as:
+- Information extraction
+- Summarization
+- Question answering
+- Data comparison
+- Content analysis 
