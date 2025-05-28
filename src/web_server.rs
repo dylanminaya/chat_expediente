@@ -13,7 +13,8 @@ use tower_http::cors::CorsLayer;
 use tower_http::services::ServeDir;
 use anyhow::Result;
 
-use crate::{ClaudeClient, Message, MessageContent, create_message_with_files};
+use crate::claude::{ClaudeClient, Message, MessageContent};
+use crate::document::create_message_with_files;
 
 #[derive(Clone)]
 pub struct AppState {
