@@ -21,17 +21,14 @@ Then open http://localhost:3000 in your browser.
 - 🎨 Beautiful modern UI
 
 ### 2. 💻 **Command Line Interface**
-Traditional terminal-based chat.
+Traditional terminal-based interactive chat.
 
 ```bash
 # Interactive mode (default)
 cargo run
 
-# Single message
-cargo run -- --message "Hello Claude!"
-
-# With documents
-cargo run -- --message "Analyze this" --files document.pdf
+# With specific region
+cargo run -- --region us-west-2
 ```
 
 ### 3. 🔌 **API Integration**
@@ -50,11 +47,10 @@ cargo run -- --web --port 3000
 ## Features
 
 - 🤖 **Interactive Chat**: Have ongoing conversations with Claude Haiku 3.5
-- 📄 **Document Support**: Upload and analyze multiple documents (PDF, TXT, MD, JSON, XML, CSV, HTML, DOCX)
+- 📄 **Document Support**: Upload and analyze multiple documents (TXT, MD, JSON, XML, CSV, HTML, DOCX)
 - 💬 **Conversation Memory**: The app remembers your conversation context
 - 📊 **Token Usage**: See input/output token usage for each request
 - 🌍 **Multi-Region**: Support for different AWS regions
-- 🎯 **Single Message**: Send one-off messages with or without documents
 - 🧹 **History Management**: Clear or view conversation history
 - 🌐 **Web Interface**: Modern browser-based UI
 - 🔌 **API Endpoints**: RESTful API for integration
@@ -75,8 +71,8 @@ cargo run -- --web --port 3000
 | CSV | `.csv` | ✅ Supported | Tabular data |
 | HTML | `.html`, `.htm` | ✅ Supported | Web content |
 | XML | `.xml` | ✅ Supported | Structured markup |
-| PDF | `.pdf` | 🚧 Text extraction | Reports, documents |
-| DOCX | `.docx` | 📋 Planned | Office documents |
+| DOCX | `.docx` | ✅ Supported | Word documents |
+| PDF | `.pdf` | 🚧 Binary info only | Reports, documents |
 
 ## Installation and Usage
 
@@ -123,19 +119,9 @@ cargo run
 # Then type your message to send text + documents together
 ```
 
-#### Single Message Mode
-```bash
-cargo run -- --message "Hello, Claude! How are you today?"
-```
-
-#### Single Message with Documents
-```bash
-cargo run -- --message "Analyze these documents" --files document1.pdf document2.txt
-```
-
 #### Specify AWS Region
 ```bash
-cargo run -- --region us-west-2 --web
+cargo run -- --region us-west-2
 ```
 
 ### 🔌 API Integration
@@ -175,9 +161,6 @@ curl "http://localhost:3000/api/conversations?id=conversation-uuid"
 - `--web, -w`: Start web server mode
 - `--port, -p`: Web server port (default: 3000)
 - `--region, -r`: AWS region (default: us-east-1)
-- `--message, -m`: Send a single message and exit
-- `--interactive, -i`: Enable interactive chat mode (default behavior)
-- `--files, -f`: Attach documents to your message (can be used multiple times)
 
 ## Interactive Commands (CLI Mode)
 
@@ -209,166 +192,62 @@ When in interactive mode, you can use these special commands:
 
 ### 💻 CLI Example
 
-```bash
-$ cargo run
-
-🚀 Initializing connection to Claude Haiku 3.5...
-🌍 Region: us-east-1
-✅ Connected successfully!
-🤖 Claude Haiku 3.5 Chat
-Type 'quit', 'exit', or 'bye' to end the conversation
-Type 'clear' to clear the conversation history
-Type 'history' to see the conversation history
-Type 'file <path>' to attach a document to your next message
-Type 'files <path1> <path2> ...' to attach multiple documents
-==================================================
-
-💬 You: Hello! Can you help me analyze some documents?
-🤖 Claude: 📊 Tokens used - Input: 15, Output: 45
-Hello! I'd be happy to help you analyze documents. You can upload documents using the 'file' or 'files' commands, then ask me questions about them. What kind of analysis are you looking for?
-
-💬 You: file sample_report.md
-📎 Added file: sample_report.md
-
-💬 You: What are the key findings in this report?
-📎 Loaded document: sample_report.md
-🤖 Claude: 📊 Tokens used - Input: 1250, Output: 180
-Based on the report you've shared, here are the key findings:
-[Analysis of the Markdown content...]
-```
-
-### 🔌 API Integration Example
-
-```javascript
-// JavaScript example for web integration
-async function chatWithClaude(message, files = []) {
-    const response = await fetch('/api/chat', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-            message: message,
-            files: files
-        })
-    });
-    
-    const data = await response.json();
-    return data.response;
-}
-
-// Upload files first
-const formData = new FormData();
-formData.append('files', fileInput.files[0]);
-
-const uploadResponse = await fetch('/api/upload', {
-    method: 'POST',
-    body: formData
-});
-
-const filePaths = await uploadResponse.json();
-
-// Then chat with uploaded files
-const response = await chatWithClaude(
-    "Analyze this document", 
-    filePaths
-);
 ```
 
 ## Document Processing
+
+### What Happens After Uploading a DOCX File
+
+When you upload a DOCX file to the application, here's what happens:
+
+1. **File Detection**: The application detects the `.docx` extension
+2. **Text Extraction**: Using the `dotext` crate, the application extracts all readable text from the DOCX file, including:
+   - Paragraph text
+   - Table content
+   - Headers and footers
+   - Text from various document elements
+3. **Content Preparation**: The extracted text is formatted and prepared for Claude
+4. **AI Analysis**: The text content is sent to Claude Haiku 3.5 along with your question
+
+### Example DOCX Processing
+
+```bash
+💬 You: file my_report.docx
+📎 Added file: my_report.docx
+
+💬 You: What are the main conclusions in this document?
+📎 Loaded document: my_report.docx
+🤖 Claude: 📊 Tokens used - Input: 2150, Output: 280
+
+Based on the document you've shared, here are the main conclusions:
+
+1. **Executive Summary**: The report concludes that...
+2. **Key Findings**: The analysis shows...
+3. **Recommendations**: The document suggests...
+
+[Claude provides detailed analysis of the extracted DOCX content]
+```
+
+### Supported Content Types
+
+The DOCX text extraction supports:
+- ✅ **Paragraphs**: All text paragraphs and formatting
+- ✅ **Tables**: Content from table cells
+- ✅ **Headers/Footers**: Document headers and footers
+- ✅ **Lists**: Bulleted and numbered lists
+- ⚠️ **Images**: Image descriptions may not be extracted
+- ⚠️ **Complex Formatting**: Some advanced formatting may be simplified
+
+### Technical Details
+
+- **Library Used**: `dotext` crate for reliable text extraction
+- **File Size Limits**: Large DOCX files may increase token usage significantly
+- **Error Handling**: If text extraction fails, the application will show file info instead
+- **Performance**: Text extraction is fast and efficient for most document sizes
+
+## Document Processing Notes
 
 - Documents are automatically processed and sent to Claude
 - File types are detected based on file extensions
 - Large documents may increase token usage significantly
 - Claude can analyze text content, extract data, compare documents, and answer questions about the content
-
-## AWS Setup
-
-### 1. Configure AWS Credentials
-
-Make sure your AWS credentials are configured. You can do this in several ways:
-
-```bash
-# Option 1: AWS CLI
-aws configure
-
-# Option 2: Environment variables
-export AWS_ACCESS_KEY_ID=your_access_key
-export AWS_SECRET_ACCESS_KEY=your_secret_key
-export AWS_DEFAULT_REGION=us-east-1
-
-# Option 3: AWS credentials file (~/.aws/credentials)
-[default]
-aws_access_key_id = your_access_key
-aws_secret_access_key = your_secret_key
-```
-
-### 2. Enable Claude Haiku 3.5 in Bedrock
-
-1. Go to the AWS Bedrock console
-2. Navigate to "Model access" in the left sidebar
-3. Click "Request model access"
-4. Find "Claude 3.5 Haiku" and request access
-5. Wait for approval (usually instant for most accounts)
-
-## Interface Comparison
-
-| Feature | Web Interface | CLI Interface | API Integration |
-|---------|---------------|---------------|-----------------|
-| **Ease of Use** | ⭐⭐⭐⭐⭐ | ⭐⭐⭐ | ⭐⭐ |
-| **File Upload** | Drag & Drop | Command-based | Programmatic |
-| **Mobile Support** | ✅ Yes | ❌ No | ✅ Yes |
-| **Visual Appeal** | ⭐⭐⭐⭐⭐ | ⭐⭐ | N/A |
-| **Automation** | ❌ No | ⭐⭐⭐ | ⭐⭐⭐⭐⭐ |
-| **Integration** | ❌ No | ❌ No | ⭐⭐⭐⭐⭐ |
-| **Performance** | ⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ |
-
-## Troubleshooting
-
-### Common Issues
-
-1. **Authentication Error**: Make sure your AWS credentials are properly configured
-2. **Model Access Error**: Ensure you have requested access to Claude Haiku 3.5 in Bedrock
-3. **Region Error**: Make sure Claude Haiku 3.5 is available in your specified region
-4. **Network Error**: Check your internet connection and AWS service status
-5. **File Not Found**: Ensure document paths are correct and files exist
-6. **Large File Error**: Very large documents may exceed token limits
-7. **Web Server Not Starting**: Check if port is already in use
-8. **Browser Not Loading**: Ensure you're using the correct URL and port
-
-### Supported Regions
-
-Claude Haiku 3.5 is available in these AWS regions:
-- us-east-1 (N. Virginia)
-- us-west-2 (Oregon)
-- eu-west-1 (Ireland)
-- ap-southeast-1 (Singapore)
-- ap-northeast-1 (Tokyo)
-
-## Model Information
-
-- **Model ID**: `us.anthropic.claude-3-5-haiku-20241022-v1:0` (inference profile)
-- **Max Tokens**: 4096
-- **Temperature**: 0.7
-- **API Version**: bedrock-2023-05-31
-- **Document Support**: PDF, TXT, MD, JSON, XML, CSV, HTML, DOCX, and more
-
-## Development
-
-### Adding New Features
-
-1. **New Document Types**: Modify `load_document_as_text()` function
-2. **UI Improvements**: Edit `static/index.html`
-3. **API Endpoints**: Add routes in `web_server.rs`
-4. **CLI Commands**: Update interactive chat logic
-
-### Building for Production
-
-```bash
-cargo build --release
-./target/release/chat_expediente --web --port 8080
-```
-
-## License
-
-This project is open source. Feel free to modify and use as needed. 
