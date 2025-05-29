@@ -80,8 +80,8 @@ impl ClaudeClient {
                     You have access to a comprehensive document collection for a client. \
                     Here is the complete context of the client's file:\n\n{}\n\n\
                     IMPORTANT INSTRUCTIONS:\n\
-                    - When referencing any document, ALWAYS include the document ID (documentId field) in your response\n\
-                    - Format document references like: [Document ID: 68371449b15db0ce743c25b3]\n\
+                    - When referencing any document, ALWAYS include the document ID and document version ID (documentId and documentVersionId fields) in your response\n\
+                    - Format document references like: [Document ID: 68371449b15db0ce743c25b3, Document Version ID: 68371449b15db0ce743c25b3]\n\
                     - If discussing multiple documents, list all relevant document IDs\n\
                     - Use this information to provide accurate, detailed responses about the client's",
                     content
