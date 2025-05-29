@@ -114,8 +114,8 @@ fn extract_document_references(text: &str) -> Vec<DocumentReference> {
     let mut references = Vec::new();
     
     // Pattern 1: Bracketed format like [Document ID: xxx, Document Version ID: yyy]
-    // Support both English and Spanish
-    let bracket_re = Regex::new(r"(?i)\[(?:.*?)?(?:document\s+id|documentid|documento\s+id|documentoid):\s*([a-f0-9]{24})(?:.*?)(?:document\s+version\s+id|documentversionid|version\s+id|versionid|documento\s+version\s+id|documentoversionid|versión\s+id|versionid):\s*([a-f0-9]{24})(?:.*?)?\]").unwrap();
+    // Support English, Spanish, and French
+    let bracket_re = Regex::new(r"(?i)\[(?:.*?)?(?:document\s+id|documentid|documento\s+id|documentoid|id\s+du\s+document|iddudocument):\s*([a-f0-9]{24})(?:.*?)(?:document\s+version\s+id|documentversionid|version\s+id|versionid|documento\s+version\s+id|documentoversionid|versión\s+id|versionid|id\s+de\s+version\s+du\s+document|iddeversiondudocument|id\s+de\s+version|iddeversion):\s*([a-f0-9]{24})(?:.*?)?\]").unwrap();
     
     for cap in bracket_re.captures_iter(text) {
         let document_id = cap[1].to_string();
@@ -133,14 +133,14 @@ fn extract_document_references(text: &str) -> Vec<DocumentReference> {
     }
     
     // Pattern 2: Line-by-line format
-    // Document ID: xxx / Documento ID: xxx
-    // Document Version ID: yyy / Documento Version ID: yyy
+    // Document ID: xxx / Documento ID: xxx / ID du document: xxx
+    // Document Version ID: yyy / Documento Version ID: yyy / ID de version du document: yyy
     let lines: Vec<&str> = text.lines().collect();
     let mut i = 0;
     
     while i < lines.len() {
-        let doc_id_re = Regex::new(r"(?i)(?:document\s+id|documentid|documento\s+id|documentoid):\s*([a-f0-9]{24})").unwrap();
-        let version_id_re = Regex::new(r"(?i)(?:document\s+version\s+id|documentversionid|version\s+id|versionid|documento\s+version\s+id|documentoversionid|versión\s+id|versionid):\s*([a-f0-9]{24})").unwrap();
+        let doc_id_re = Regex::new(r"(?i)(?:document\s+id|documentid|documento\s+id|documentoid|id\s+du\s+document|iddudocument):\s*([a-f0-9]{24})").unwrap();
+        let version_id_re = Regex::new(r"(?i)(?:document\s+version\s+id|documentversionid|version\s+id|versionid|documento\s+version\s+id|documentoversionid|versión\s+id|versionid|id\s+de\s+version\s+du\s+document|iddeversiondudocument|id\s+de\s+version|iddeversion):\s*([a-f0-9]{24})").unwrap();
         
         if let Some(doc_cap) = doc_id_re.captures(lines[i]) {
             let document_id = doc_cap[1].to_string();
@@ -168,8 +168,8 @@ fn extract_document_references(text: &str) -> Vec<DocumentReference> {
     }
     
     // Pattern 3: Same-line format with various separators
-    // Support both English and Spanish
-    let same_line_re = Regex::new(r"(?i)(?:document\s+id|documentid|documento\s+id|documentoid):\s*([a-f0-9]{24})(?:\s*[-,\s]+\s*(?:document\s+version\s+id|documentversionid|version\s+id|versionid|documento\s+version\s+id|documentoversionid|versión\s+id|versionid):\s*([a-f0-9]{24}))").unwrap();
+    // Support English, Spanish, and French
+    let same_line_re = Regex::new(r"(?i)(?:document\s+id|documentid|documento\s+id|documentoid|id\s+du\s+document|iddudocument):\s*([a-f0-9]{24})(?:\s*[-,\s]+\s*(?:document\s+version\s+id|documentversionid|version\s+id|versionid|documento\s+version\s+id|documentoversionid|versión\s+id|versionid|id\s+de\s+version\s+du\s+document|iddeversiondudocument|id\s+de\s+version|iddeversion):\s*([a-f0-9]{24}))").unwrap();
     
     for cap in same_line_re.captures_iter(text) {
         let document_id = cap[1].to_string();
@@ -187,9 +187,9 @@ fn extract_document_references(text: &str) -> Vec<DocumentReference> {
     }
     
     // Pattern 4: Fallback - collect all Document IDs and Version IDs separately
-    // Support both English and Spanish
-    let doc_id_re = Regex::new(r"(?i)(?:document\s+id|documentid|documento\s+id|documentoid):\s*([a-f0-9]{24})").unwrap();
-    let version_id_re = Regex::new(r"(?i)(?:document\s+version\s+id|documentversionid|version\s+id|versionid|documento\s+version\s+id|documentoversionid|versión\s+id|versionid):\s*([a-f0-9]{24})").unwrap();
+    // Support English, Spanish, and French
+    let doc_id_re = Regex::new(r"(?i)(?:document\s+id|documentid|documento\s+id|documentoid|id\s+du\s+document|iddudocument):\s*([a-f0-9]{24})").unwrap();
+    let version_id_re = Regex::new(r"(?i)(?:document\s+version\s+id|documentversionid|version\s+id|versionid|documento\s+version\s+id|documentoversionid|versión\s+id|versionid|id\s+de\s+version\s+du\s+document|iddeversiondudocument|id\s+de\s+version|iddeversion):\s*([a-f0-9]{24})").unwrap();
     
     let document_ids: Vec<String> = doc_id_re.captures_iter(text)
         .map(|cap| cap[1].to_string())

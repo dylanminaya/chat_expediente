@@ -96,6 +96,8 @@ impl ClaudeClient {
                     IMPORTANT INSTRUCTIONS:\n\
                     - When referencing any document, ALWAYS include the document ID and document version ID (documentId and documentVersionId fields) in your response\n\
                     - Format document references like: [Document ID: 68371449b15db0ce743c25b3, Document Version ID: 68371449b15db0ce743c25b3]\n\
+                    - In Spanish: [Documento ID: 68371449b15db0ce743c25b3, Documento Version ID: 68371449b15db0ce743c25b3]\n\
+                    - In French: [ID du document: 68371449b15db0ce743c25b3, ID de version du document: 68371449b15db0ce743c25b3]\n\
                     - If discussing multiple documents, list all relevant document IDs\n\
                     - Use this information to provide accurate, detailed responses about the client's\n\
                     - Please respond in the same language as the question or inquiry.",
@@ -108,9 +110,10 @@ impl ClaudeClient {
                 Ok("You are an AI assistant specialized in analyzing financial and legal documents. \
                 Always include document IDs when referencing specific documents. \
                 IMPORTANT: When referencing documents, always include both Document ID and Document Version ID in this exact format: \
-                Document ID: [24-character hex ID] \
-                Document Version ID: [24-character hex ID] \
-                Use this format regardless of the language you respond in.".to_string())
+                English: Document ID: [24-character hex ID], Document Version ID: [24-character hex ID] \
+                Spanish: Documento ID: [24-character hex ID], Documento Version ID: [24-character hex ID] \
+                French: ID du document: [24-character hex ID], ID de version du document: [24-character hex ID] \
+                Use the appropriate format based on the language you respond in.".to_string())
             }
         }
     }
