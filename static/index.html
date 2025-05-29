@@ -172,25 +172,6 @@
             margin-top: 5px;
         }
 
-        .document-ids {
-            background: #f8f9fa;
-            padding: 8px 12px;
-            border-radius: 8px;
-            margin-top: 8px;
-            border-left: 3px solid #667eea;
-            font-size: 12px;
-            color: #333;
-        }
-
-        .document-ids code {
-            background: #e9ecef;
-            padding: 2px 6px;
-            border-radius: 4px;
-            font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
-            font-size: 11px;
-            color: #495057;
-        }
-
         .document-references {
             background: #f8f9fa;
             padding: 12px;
@@ -240,9 +221,6 @@
             cursor: pointer;
             transition: all 0.2s ease;
             font-weight: 500;
-        }
-
-        .fetch-btn {
             background: #28a745;
             color: white;
         }
@@ -402,7 +380,7 @@
                         </div>
                         <div class="document-actions">
                             <button class="fetch-btn" onclick="fetchDocument('${ref.document_id}', '${ref.version_id}')">
-                                Fetch Document
+                                View Document
                             </button>
                         </div>
                     </div>
@@ -438,14 +416,25 @@
         async function fetchDocument(documentId, versionId) {
             console.log(`Fetching document: ${documentId}, version: ${versionId}`);
             
+            // Show typing indicator since Claude will analyze the document
+            typingIndicator.classList.add('show');
+            
             try {
-                const response = await fetch(`/api/document?document_id=${documentId}&version_id=${versionId}`);
+                const response = await fetch(`/api/document?document_id=${documentId}&version_id=${versionId}&conversation_id=${conversationId || ''}`);
                 const data = await response.json();
                 
                 if (data.success) {
                     console.log('Document fetched successfully:', data);
                     
-                    // Extract the base64 content
+                    // Update conversation ID
+                    conversationId = data.conversation_id;
+                    
+                    // Add Claude's automatic analysis to the chat
+                    if (data.claude_response) {
+                        addMessage('assistant', data.claude_response);
+                    }
+                    
+                    // Extract the base64 content for PDF display
                     let base64Content = null;
                     
                     if (data.binaries && data.binaries.length > 0) {
@@ -486,8 +475,6 @@
                         `;
                         
                         addMessage('assistant', pdfDisplay);
-                    } else {
-                        addMessage('assistant', `❌ No PDF content found in document ${documentId}`);
                     }
                 } else {
                     console.error('Failed to fetch document:', data.error);
@@ -496,6 +483,9 @@
             } catch (error) {
                 console.error('Error fetching document:', error);
                 addMessage('assistant', `❌ Error fetching document: ${error.message}`);
+            } finally {
+                // Hide typing indicator
+                typingIndicator.classList.remove('show');
             }
         }
     </script>

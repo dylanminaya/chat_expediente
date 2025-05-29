@@ -33,6 +33,20 @@ pub enum MessageContent {
 pub enum ContentBlock {
     #[serde(rename = "text")]
     Text { text: String },
+    #[serde(rename = "document")]
+    Document {
+        #[serde(rename = "source")]
+        source: DocumentSource,
+    },
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct DocumentSource {
+    #[serde(rename = "type")]
+    pub source_type: String, // "base64"
+    #[serde(rename = "media_type")]
+    pub media_type: String, // "application/pdf"
+    pub data: String, // base64 encoded content
 }
 
 #[derive(Deserialize)]
@@ -105,6 +119,8 @@ impl ClaudeClient {
         };
         
         let body = serde_json::to_string(&request)?;
+        println!("🔍 Request body size: {} bytes", body.len());
+        
         let blob = Blob::new(body.as_bytes());
         
         let response = self.client
@@ -114,11 +130,17 @@ impl ClaudeClient {
             .body(blob)
             .send()
             .await
-            .map_err(|e| anyhow!("Failed to invoke model: {}", e))?;
+            .map_err(|e| {
+                println!("❌ AWS Bedrock error details: {:?}", e);
+                anyhow!("Failed to invoke model: {}", e)
+            })?;
         
         let response_body = response.body().as_ref();
+        let response_text = String::from_utf8_lossy(response_body);
+        println!("🔍 Response body: {}", response_text);
+        
         let claude_response: ClaudeResponse = serde_json::from_slice(response_body)
-            .map_err(|e| anyhow!("Failed to parse response: {}", e))?;
+            .map_err(|e| anyhow!("Failed to parse response: {} - Response body: {}", e, response_text))?;
         
         if let Some(content) = claude_response.content.first() {
             println!("📊 Tokens used - Input: {}, Output: {}", 

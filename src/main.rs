@@ -4,6 +4,7 @@ mod claude;
 mod web_server;
 
 use claude::ClaudeClient;
+use web_server::create_web_server;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -20,7 +21,7 @@ async fn main() -> Result<()> {
     println!("✅ Connected successfully!");
     
     println!("🌐 Starting web server on port {}...", port);
-    web_server::create_web_server(claude, port).await?;
+    create_web_server(claude, port).await?;
     
     Ok(())
 }

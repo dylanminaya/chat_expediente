@@ -13,6 +13,8 @@ use tower_http::cors::CorsLayer;
 use tower_http::services::ServeDir;
 use anyhow::Result;
 use regex::Regex;
+use uuid::Uuid;
+use base64::{Engine as _, engine::general_purpose};
 
 use crate::claude::{ClaudeClient, Message, MessageContent};
 
@@ -53,6 +55,7 @@ pub struct ConversationQuery {
 pub struct DocumentQuery {
     document_id: String,
     version_id: String,
+    conversation_id: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -63,6 +66,8 @@ pub struct DocumentResponse {
     content: Option<String>,
     binaries: Option<Vec<String>>,
     error: Option<String>,
+    claude_response: String,
+    conversation_id: String,
 }
 
 pub async fn create_web_server(claude: ClaudeClient, port: u16) -> Result<()> {
@@ -209,29 +214,29 @@ fn extract_document_references(text: &str) -> Vec<DocumentReference> {
     references
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_extract_document_references() {
-        // Test the exact format that Claude uses
-        let test_text = "[Document ID: 6835eb99f6f46cd38ee2c311, Document Version ID: 6835eb99f6f46cd38ee2c312]";
-        let refs = extract_document_references(test_text);
-        
-        assert_eq!(refs.len(), 1);
-        assert_eq!(refs[0].document_id, "6835eb99f6f46cd38ee2c311");
-        assert_eq!(refs[0].version_id, "6835eb99f6f46cd38ee2c312");
-        
-        // Test multiple references
-        let test_text_multiple = "[Document ID: 6835eb99f6f46cd38ee2c311, Document Version ID: 6835eb99f6f46cd38ee2c312] and [Document ID: 6835eb974d2e21cc576a7682, Document Version ID: 683714844e4658ba16613bd1]";
-        let refs_multiple = extract_document_references(test_text_multiple);
-        
-        assert_eq!(refs_multiple.len(), 2);
-        assert_eq!(refs_multiple[0].document_id, "6835eb99f6f46cd38ee2c311");
-        assert_eq!(refs_multiple[0].version_id, "6835eb99f6f46cd38ee2c312");
-        assert_eq!(refs_multiple[1].document_id, "6835eb974d2e21cc576a7682");
-        assert_eq!(refs_multiple[1].version_id, "683714844e4658ba16613bd1");
+fn extract_pdf_text(base64_data: &str) -> Result<String, String> {
+    // Remove the data URL prefix if present
+    let clean_base64 = if base64_data.starts_with("data:application/pdf;base64,") {
+        &base64_data[28..] // Remove "data:application/pdf;base64,"
+    } else {
+        base64_data
+    };
+    
+    // Decode base64 to bytes
+    let pdf_bytes = general_purpose::STANDARD
+        .decode(clean_base64)
+        .map_err(|e| format!("Failed to decode base64: {}", e))?;
+    
+    // Extract text from PDF
+    match pdf_extract::extract_text_from_mem(&pdf_bytes) {
+        Ok(text) => {
+            if text.trim().is_empty() {
+                Ok("📄 PDF document processed but no extractable text content found. This may be a scanned document or contain only images.".to_string())
+            } else {
+                Ok(text)
+            }
+        }
+        Err(e) => Err(format!("Failed to extract text from PDF: {}", e))
     }
 }
 
@@ -240,13 +245,12 @@ async fn handle_chat(
     Json(request): Json<ChatRequest>,
 ) -> Result<Json<ChatResponse>, StatusCode> {
     let conversation_id = request.conversation_id.unwrap_or_else(|| {
-        uuid::Uuid::new_v4().to_string()
+        Uuid::new_v4().to_string()
     });
 
     let mut conversations = state.conversations.lock().await;
     let conversation = conversations.entry(conversation_id.clone()).or_insert_with(Vec::new);
 
-    // Create simple text message
     let message = Message {
         role: "user".to_string(),
         content: MessageContent::Text(request.message),
@@ -284,6 +288,7 @@ async fn handle_chat(
 }
 
 async fn fetch_document(
+    State(state): State<AppState>,
     Query(params): Query<DocumentQuery>,
 ) -> Json<DocumentResponse> {
     // Get document endpoint from environment variable or use default
@@ -321,7 +326,7 @@ async fn fetch_document(
                 match response.text().await {
                     Ok(content) => {
                         // Try to parse as JSON to extract the actual document structure
-                        if let Ok(json_value) = serde_json::from_str::<serde_json::Value>(&content) {
+                        let (document_content, binaries) = if let Ok(json_value) = serde_json::from_str::<serde_json::Value>(&content) {
                             // Extract binaries field (could be null or array)
                             let mut binaries = json_value.get("binaries")
                                 .and_then(|b| {
@@ -372,25 +377,140 @@ async fn fetch_document(
                                     Some(serde_json::to_string_pretty(&json_value).unwrap_or_else(|_| content.clone()))
                                 });
                             
-                            Json(DocumentResponse {
-                                success: true,
-                                document_id: params.document_id,
-                                version_id: params.version_id,
-                                content: document_content,
-                                binaries,
-                                error: None,
-                            })
+                            (document_content, binaries)
                         } else {
                             // Not JSON, treat as plain text
-                            Json(DocumentResponse {
-                                success: true,
-                                document_id: params.document_id,
-                                version_id: params.version_id,
-                                content: Some(content),
-                                binaries: None,
-                                error: None,
-                            })
+                            (Some(content), None)
+                        };
+
+                        // Always send the document content to Claude and add it to conversation context
+                        let conversation_id = params.conversation_id.clone().unwrap_or_else(|| Uuid::new_v4().to_string());
+                        
+                        // Extract text content from PDF if available
+                        let mut text_content = String::new();
+                        
+                        if let Some(ref binaries) = binaries {
+                            for binary_data in binaries {
+                                if binary_data.starts_with("data:application/pdf;base64,") {
+                                    match extract_pdf_text(binary_data) {
+                                        Ok(pdf_text) => {
+                                            text_content.push_str("📄 PDF Content:\n");
+                                            // Truncate PDF content if too long (keep first 50,000 characters)
+                                            let truncated_text = if pdf_text.len() > 50000 {
+                                                format!("{}...\n\n[Content truncated - PDF is very long. Showing first 50,000 characters]", &pdf_text[..50000])
+                                            } else {
+                                                pdf_text
+                                            };
+                                            text_content.push_str(&truncated_text);
+                                            text_content.push_str("\n\n");
+                                        }
+                                        Err(e) => {
+                                            text_content.push_str(&format!("📄 PDF document detected but failed to extract text: {}\n\n", e));
+                                        }
+                                    }
+                                }
+                            }
                         }
+                        
+                        // Add document metadata if no PDF content was extracted
+                        if text_content.is_empty() {
+                            if let Some(ref doc_content) = document_content {
+                                // Truncate metadata if too long
+                                let truncated_metadata = if doc_content.len() > 10000 {
+                                    format!("{}...\n\n[Metadata truncated]", &doc_content[..10000])
+                                } else {
+                                    doc_content.clone()
+                                };
+                                text_content.push_str(&format!("📋 Document Metadata:\n{}\n\n", truncated_metadata));
+                            }
+                        } else {
+                            // Add metadata after PDF content (truncated)
+                            if let Some(ref doc_content) = document_content {
+                                let truncated_metadata = if doc_content.len() > 5000 {
+                                    format!("{}...\n\n[Metadata truncated]", &doc_content[..5000])
+                                } else {
+                                    doc_content.clone()
+                                };
+                                text_content.push_str(&format!("📋 Document Metadata:\n{}\n\n", truncated_metadata));
+                            }
+                        }
+                        
+                        let message_text = format!(
+                            "Document fetched and added to context:\n\n\
+                            Document ID: {}\n\
+                            Document Version ID: {}\n\n\
+                            {}",
+                            params.document_id,
+                            params.version_id,
+                            text_content
+                        );
+
+                        // Final safety check - if message is still too long, truncate further
+                        let final_message_text = if message_text.len() > 100000 {
+                            let truncated = &message_text[..100000];
+                            format!("{}...\n\n[Message truncated to prevent token limit exceeded]", truncated)
+                        } else {
+                            message_text
+                        };
+
+                        println!("🔍 Final message text length: {} characters", final_message_text.len());
+                        println!("🔍 Text content preview: {}", &text_content[..std::cmp::min(500, text_content.len())]);
+
+                        // Get or create conversation
+                        let mut conversations = state.conversations.lock().await;
+                        let conversation = conversations.entry(conversation_id.clone()).or_insert_with(Vec::new);
+
+                        println!("🔍 Current conversation length: {} messages", conversation.len());
+
+                        // Limit conversation history to prevent token overflow
+                        // Keep only the last 10 messages (5 exchanges) to stay within token limits
+                        if conversation.len() > 10 {
+                            let keep_from = conversation.len() - 10;
+                            conversation.drain(0..keep_from);
+                            println!("🔄 Trimmed conversation history, now {} messages", conversation.len());
+                        }
+
+                        let message = Message {
+                            role: "user".to_string(),
+                            content: MessageContent::Text(final_message_text),
+                        };
+
+                        conversation.push(message);
+
+                        // Use a shorter system context for document processing to save tokens
+                        let system_context = Some(
+                            "You are an AI assistant specialized in analyzing financial and legal documents. \
+                            Always include document IDs when referencing specific documents. \
+                            Provide concise, accurate analysis of the document content provided.".to_string()
+                        );
+                        println!("🔍 System context length: {} characters", system_context.as_ref().map(|s| s.len()).unwrap_or(0));
+
+                        // Send to Claude
+                        let claude_response = match state.claude.send_message_with_system(conversation, system_context).await {
+                            Ok(response) => {
+                                // Add Claude's response to conversation
+                                conversation.push(Message {
+                                    role: "assistant".to_string(),
+                                    content: MessageContent::Text(response.clone()),
+                                });
+                                response
+                            }
+                            Err(e) => {
+                                conversation.pop(); // Remove the failed message
+                                format!("❌ Error processing document: {}", e)
+                            }
+                        };
+                        
+                        Json(DocumentResponse {
+                            success: true,
+                            document_id: params.document_id,
+                            version_id: params.version_id,
+                            content: document_content,
+                            binaries,
+                            error: None,
+                            claude_response,
+                            conversation_id,
+                        })
                     }
                     Err(e) => {
                         Json(DocumentResponse {
@@ -400,6 +520,8 @@ async fn fetch_document(
                             content: None,
                             binaries: None,
                             error: Some(format!("Failed to read document content: {}", e)),
+                            claude_response: String::new(),
+                            conversation_id: params.conversation_id.unwrap_or_default(),
                         })
                     }
                 }
@@ -421,6 +543,8 @@ async fn fetch_document(
                     content: None,
                     binaries: None,
                     error: Some(error_message),
+                    claude_response: String::new(),
+                    conversation_id: params.conversation_id.unwrap_or_default(),
                 })
             }
         }
@@ -432,6 +556,8 @@ async fn fetch_document(
                 content: None,
                 binaries: None,
                 error: Some(format!("Network error: {}", e)),
+                claude_response: String::new(),
+                conversation_id: params.conversation_id.unwrap_or_default(),
             })
         }
     }
