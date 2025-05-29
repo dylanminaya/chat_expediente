@@ -66,7 +66,7 @@ pub struct DocumentResponse {
     content: Option<String>,
     binaries: Option<Vec<String>>,
     error: Option<String>,
-    claude_response: String,
+    // claude_response: String,
     conversation_id: String,
 }
 
@@ -114,7 +114,8 @@ fn extract_document_references(text: &str) -> Vec<DocumentReference> {
     let mut references = Vec::new();
     
     // Pattern 1: Bracketed format like [Document ID: xxx, Document Version ID: yyy]
-    let bracket_re = Regex::new(r"(?i)\[(?:.*?)?(?:document\s+id|documentid):\s*([a-f0-9]{24})(?:.*?)(?:document\s+version\s+id|documentversionid|version\s+id|versionid):\s*([a-f0-9]{24})(?:.*?)?\]").unwrap();
+    // Support both English and Spanish
+    let bracket_re = Regex::new(r"(?i)\[(?:.*?)?(?:document\s+id|documentid|documento\s+id|documentoid):\s*([a-f0-9]{24})(?:.*?)(?:document\s+version\s+id|documentversionid|version\s+id|versionid|documento\s+version\s+id|documentoversionid|versión\s+id|versionid):\s*([a-f0-9]{24})(?:.*?)?\]").unwrap();
     
     for cap in bracket_re.captures_iter(text) {
         let document_id = cap[1].to_string();
@@ -132,14 +133,14 @@ fn extract_document_references(text: &str) -> Vec<DocumentReference> {
     }
     
     // Pattern 2: Line-by-line format
-    // Document ID: xxx
-    // Document Version ID: yyy
+    // Document ID: xxx / Documento ID: xxx
+    // Document Version ID: yyy / Documento Version ID: yyy
     let lines: Vec<&str> = text.lines().collect();
     let mut i = 0;
     
     while i < lines.len() {
-        let doc_id_re = Regex::new(r"(?i)(?:document\s+id|documentid):\s*([a-f0-9]{24})").unwrap();
-        let version_id_re = Regex::new(r"(?i)(?:document\s+version\s+id|documentversionid|version\s+id|versionid):\s*([a-f0-9]{24})").unwrap();
+        let doc_id_re = Regex::new(r"(?i)(?:document\s+id|documentid|documento\s+id|documentoid):\s*([a-f0-9]{24})").unwrap();
+        let version_id_re = Regex::new(r"(?i)(?:document\s+version\s+id|documentversionid|version\s+id|versionid|documento\s+version\s+id|documentoversionid|versión\s+id|versionid):\s*([a-f0-9]{24})").unwrap();
         
         if let Some(doc_cap) = doc_id_re.captures(lines[i]) {
             let document_id = doc_cap[1].to_string();
@@ -167,7 +168,8 @@ fn extract_document_references(text: &str) -> Vec<DocumentReference> {
     }
     
     // Pattern 3: Same-line format with various separators
-    let same_line_re = Regex::new(r"(?i)(?:document\s+id|documentid):\s*([a-f0-9]{24})(?:\s*[-,\s]+\s*(?:document\s+version\s+id|documentversionid|version\s+id|versionid):\s*([a-f0-9]{24}))").unwrap();
+    // Support both English and Spanish
+    let same_line_re = Regex::new(r"(?i)(?:document\s+id|documentid|documento\s+id|documentoid):\s*([a-f0-9]{24})(?:\s*[-,\s]+\s*(?:document\s+version\s+id|documentversionid|version\s+id|versionid|documento\s+version\s+id|documentoversionid|versión\s+id|versionid):\s*([a-f0-9]{24}))").unwrap();
     
     for cap in same_line_re.captures_iter(text) {
         let document_id = cap[1].to_string();
@@ -185,8 +187,9 @@ fn extract_document_references(text: &str) -> Vec<DocumentReference> {
     }
     
     // Pattern 4: Fallback - collect all Document IDs and Version IDs separately
-    let doc_id_re = Regex::new(r"(?i)(?:document\s+id|documentid):\s*([a-f0-9]{24})").unwrap();
-    let version_id_re = Regex::new(r"(?i)(?:document\s+version\s+id|documentversionid|version\s+id|versionid):\s*([a-f0-9]{24})").unwrap();
+    // Support both English and Spanish
+    let doc_id_re = Regex::new(r"(?i)(?:document\s+id|documentid|documento\s+id|documentoid):\s*([a-f0-9]{24})").unwrap();
+    let version_id_re = Regex::new(r"(?i)(?:document\s+version\s+id|documentversionid|version\s+id|versionid|documento\s+version\s+id|documentoversionid|versión\s+id|versionid):\s*([a-f0-9]{24})").unwrap();
     
     let document_ids: Vec<String> = doc_id_re.captures_iter(text)
         .map(|cap| cap[1].to_string())
@@ -257,7 +260,7 @@ async fn handle_chat(
     };
 
     conversation.push(message);
-
+    
     // Use global context as system message for all conversations
     let system_context = Some(state.global_context.as_ref().clone());
 
@@ -475,32 +478,25 @@ async fn fetch_document(
                             content: MessageContent::Text(final_message_text),
                         };
 
+                        // Add the document content to conversation context without sending to Claude
                         conversation.push(message);
 
-                        // Use a shorter system context for document processing to save tokens
-                        let system_context = Some(
-                            "You are an AI assistant specialized in analyzing financial and legal documents. \
-                            Always include document IDs when referencing specific documents. \
-                            Provide concise, accurate analysis of the document content provided.".to_string()
-                        );
-                        println!("🔍 System context length: {} characters", system_context.as_ref().map(|s| s.len()).unwrap_or(0));
+                        // Create a simple confirmation response without calling Claude
+                        // let claude_response = format!(
+                        //     "✅ Document added to conversation context:\n\n\
+                        //     📄 **Document ID:** {}\n\
+                        //     📄 **Document Version ID:** {}\n\n\
+                        //     The document content is now available in our conversation. You can ask me questions about this document and I'll analyze it for you.",
+                        //     params.document_id,
+                        //     params.version_id
+                        // );
 
-                        // Send to Claude
-                        let claude_response = match state.claude.send_message_with_system(conversation, system_context).await {
-                            Ok(response) => {
-                                // Add Claude's response to conversation
-                                conversation.push(Message {
-                                    role: "assistant".to_string(),
-                                    content: MessageContent::Text(response.clone()),
-                                });
-                                response
-                            }
-                            Err(e) => {
-                                conversation.pop(); // Remove the failed message
-                                format!("❌ Error processing document: {}", e)
-                            }
-                        };
-                        
+                        // // Add the confirmation as an assistant message
+                        // conversation.push(Message {
+                        //     role: "assistant".to_string(),
+                        //     content: MessageContent::Text(claude_response.clone()),
+                        // });
+
                         Json(DocumentResponse {
                             success: true,
                             document_id: params.document_id,
@@ -508,7 +504,7 @@ async fn fetch_document(
                             content: document_content,
                             binaries,
                             error: None,
-                            claude_response,
+                            // claude_response,
                             conversation_id,
                         })
                     }
@@ -520,7 +516,7 @@ async fn fetch_document(
                             content: None,
                             binaries: None,
                             error: Some(format!("Failed to read document content: {}", e)),
-                            claude_response: String::new(),
+                            // claude_response: String::new(),
                             conversation_id: params.conversation_id.unwrap_or_default(),
                         })
                     }
@@ -543,7 +539,7 @@ async fn fetch_document(
                     content: None,
                     binaries: None,
                     error: Some(error_message),
-                    claude_response: String::new(),
+                    // claude_response: String::new(),
                     conversation_id: params.conversation_id.unwrap_or_default(),
                 })
             }
@@ -556,7 +552,7 @@ async fn fetch_document(
                 content: None,
                 binaries: None,
                 error: Some(format!("Network error: {}", e)),
-                claude_response: String::new(),
+                // claude_response: String::new(),
                 conversation_id: params.conversation_id.unwrap_or_default(),
             })
         }

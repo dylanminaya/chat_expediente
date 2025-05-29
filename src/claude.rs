@@ -97,14 +97,20 @@ impl ClaudeClient {
                     - When referencing any document, ALWAYS include the document ID and document version ID (documentId and documentVersionId fields) in your response\n\
                     - Format document references like: [Document ID: 68371449b15db0ce743c25b3, Document Version ID: 68371449b15db0ce743c25b3]\n\
                     - If discussing multiple documents, list all relevant document IDs\n\
-                    - Use this information to provide accurate, detailed responses about the client's",
+                    - Use this information to provide accurate, detailed responses about the client's\n\
+                    - Please respond in the same language as the question or inquiry.",
                     content
                 );
                 Ok(system_prompt)
             }
             Err(e) => {
                 println!("⚠️  Warning: Could not load global_context.json: {}", e);
-                Ok("You are an AI assistant specialized in analyzing financial and legal documents. Always include document IDs when referencing specific documents.".to_string())
+                Ok("You are an AI assistant specialized in analyzing financial and legal documents. \
+                Always include document IDs when referencing specific documents. \
+                IMPORTANT: When referencing documents, always include both Document ID and Document Version ID in this exact format: \
+                Document ID: [24-character hex ID] \
+                Document Version ID: [24-character hex ID] \
+                Use this format regardless of the language you respond in.".to_string())
             }
         }
     }
@@ -121,34 +127,72 @@ impl ClaudeClient {
         let body = serde_json::to_string(&request)?;
         println!("🔍 Request body size: {} bytes", body.len());
         
-        let blob = Blob::new(body.as_bytes());
+        // Retry logic for rate limiting
+        let mut retry_count = 0;
+        let max_retries = 3;
         
-        let response = self.client
-            .invoke_model()
-            .model_id(&self.model_id)
-            .content_type("application/json")
-            .body(blob)
-            .send()
-            .await
-            .map_err(|e| {
-                println!("❌ AWS Bedrock error details: {:?}", e);
-                anyhow!("Failed to invoke model: {}", e)
-            })?;
-        
-        let response_body = response.body().as_ref();
-        let response_text = String::from_utf8_lossy(response_body);
-        println!("🔍 Response body: {}", response_text);
-        
-        let claude_response: ClaudeResponse = serde_json::from_slice(response_body)
-            .map_err(|e| anyhow!("Failed to parse response: {} - Response body: {}", e, response_text))?;
-        
-        if let Some(content) = claude_response.content.first() {
-            println!("📊 Tokens used - Input: {}, Output: {}", 
-                     claude_response.usage.input_tokens, 
-                     claude_response.usage.output_tokens);
-            Ok(content.text.clone())
-        } else {
-            Err(anyhow!("No content in response"))
+        loop {
+            let blob = Blob::new(body.as_bytes());
+            
+            let result = self.client
+                .invoke_model()
+                .model_id(&self.model_id)
+                .content_type("application/json")
+                .body(blob)
+                .send()
+                .await;
+            
+            match result {
+                Ok(response) => {
+                    let response_body = response.body().as_ref();
+                    let response_text = String::from_utf8_lossy(response_body);
+                    
+                    let claude_response: ClaudeResponse = serde_json::from_slice(response_body)
+                        .map_err(|e| anyhow!("Failed to parse response: {} - Response body: {}", e, response_text))?;
+                    
+                    if let Some(content) = claude_response.content.first() {
+                        let input_tokens = claude_response.usage.input_tokens;
+                        let output_tokens = claude_response.usage.output_tokens;
+                        let total_tokens = input_tokens + output_tokens;
+                        
+                        println!("📊 TOKEN USAGE SUMMARY:");
+                        println!("   Input tokens:  {}", input_tokens);
+                        println!("   Output tokens: {}", output_tokens);
+                        println!("   Total tokens:  {}", total_tokens);
+                        println!("   💰 Estimated cost: ~${:.4} USD", (total_tokens as f64) * 0.00025 / 1000.0);
+                        
+                        if input_tokens > 30000 {
+                            println!("⚠️  WARNING: High input token usage! Consider reducing content size.");
+                        }
+                        if total_tokens > 40000 {
+                            println!("🚨 ALERT: Very high token usage! You may hit rate limits.");
+                        }
+                        
+                        return Ok(content.text.clone());
+                    } else {
+                        return Err(anyhow!("No content in response"));
+                    }
+                }
+                Err(e) => {
+                    println!("❌ AWS Bedrock error details: {:?}", e);
+                    
+                    // Check if it's a throttling error
+                    let error_string = format!("{:?}", e);
+                    if error_string.contains("ThrottlingException") || error_string.contains("Too many tokens") {
+                        if retry_count < max_retries {
+                            retry_count += 1;
+                            let wait_time = 2_u64.pow(retry_count) * 1000; // Exponential backoff: 2s, 4s, 8s
+                            println!("🔄 Rate limited! Retrying in {}ms (attempt {}/{})", wait_time, retry_count, max_retries);
+                            tokio::time::sleep(tokio::time::Duration::from_millis(wait_time)).await;
+                            continue;
+                        } else {
+                            return Err(anyhow!("Rate limited after {} retries. Please wait before trying again.", max_retries));
+                        }
+                    } else {
+                        return Err(anyhow!("Failed to invoke model: {}", e));
+                    }
+                }
+            }
         }
     }
 } 
