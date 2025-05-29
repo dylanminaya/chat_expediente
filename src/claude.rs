@@ -3,6 +3,7 @@ use aws_sdk_bedrockruntime::{Client, primitives::Blob};
 use aws_types::region::Region;
 use anyhow::{Result, anyhow};
 use serde::{Deserialize, Serialize};
+use std::fs;
 
 #[derive(Serialize)]
 pub struct ClaudeRequest {
@@ -10,6 +11,8 @@ pub struct ClaudeRequest {
     max_tokens: u32,
     messages: Vec<Message>,
     temperature: f32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    system: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -68,12 +71,41 @@ impl ClaudeClient {
         Ok(ClaudeClient { client, model_id })
     }
     
+    pub fn load_global_context() -> Result<String> {
+        let context_path = "global_context.json";
+        match fs::read_to_string(context_path) {
+            Ok(content) => {
+                let system_prompt = format!(
+                    "You are an AI assistant specialized in analyzing financial and legal documents. \
+                    You have access to a comprehensive document collection for a client. \
+                    Here is the complete context of the client's file:\n\n{}\n\n\
+                    IMPORTANT INSTRUCTIONS:\n\
+                    - When referencing any document, ALWAYS include the document ID (documentId field) in your response\n\
+                    - Format document references like: [Document ID: 68371449b15db0ce743c25b3]\n\
+                    - If discussing multiple documents, list all relevant document IDs\n\
+                    - Use this information to provide accurate, detailed responses about the client's",
+                    content
+                );
+                Ok(system_prompt)
+            }
+            Err(e) => {
+                println!("⚠️  Warning: Could not load global_context.json: {}", e);
+                Ok("You are an AI assistant specialized in analyzing financial and legal documents. Always include document IDs when referencing specific documents.".to_string())
+            }
+        }
+    }
+    
     pub async fn send_message(&self, messages: &[Message]) -> Result<String> {
+        self.send_message_with_system(messages, None).await
+    }
+    
+    pub async fn send_message_with_system(&self, messages: &[Message], system: Option<String>) -> Result<String> {
         let request = ClaudeRequest {
             anthropic_version: "bedrock-2023-05-31".to_string(),
             max_tokens: 4096,
             messages: messages.to_vec(),
             temperature: 0.7,
+            system,
         };
         
         let body = serde_json::to_string(&request)?;

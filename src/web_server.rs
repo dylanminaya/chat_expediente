@@ -1,5 +1,5 @@
 use axum::{
-    extract::{Multipart, Query, State},
+    extract::{Query, State},
     http::StatusCode,
     response::{Html, Json},
     routing::{get, post},
@@ -12,21 +12,21 @@ use tokio::sync::Mutex;
 use tower_http::cors::CorsLayer;
 use tower_http::services::ServeDir;
 use anyhow::Result;
+use regex::Regex;
 
 use crate::claude::{ClaudeClient, Message, MessageContent};
-use crate::document::create_message_with_files;
 
 #[derive(Clone)]
 pub struct AppState {
     claude: Arc<ClaudeClient>,
     conversations: Arc<Mutex<HashMap<String, Vec<Message>>>>,
+    global_context: Arc<String>,
 }
 
 #[derive(Deserialize)]
 pub struct ChatRequest {
     message: String,
     conversation_id: Option<String>,
-    files: Option<Vec<String>>,
 }
 
 #[derive(Serialize)]
@@ -35,6 +35,7 @@ pub struct ChatResponse {
     conversation_id: String,
     input_tokens: u32,
     output_tokens: u32,
+    document_ids: Vec<String>,
 }
 
 #[derive(Deserialize)]
@@ -43,16 +44,28 @@ pub struct ConversationQuery {
 }
 
 pub async fn create_web_server(claude: ClaudeClient, port: u16) -> Result<()> {
+    // Load global context
+    let global_context = match ClaudeClient::load_global_context() {
+        Ok(context) => {
+            println!("✅ Global context loaded successfully");
+            context
+        }
+        Err(e) => {
+            println!("⚠️  Warning: Failed to load global context: {}", e);
+            "You are an AI assistant specialized in analyzing financial and legal documents.".to_string()
+        }
+    };
+
     let state = AppState {
         claude: Arc::new(claude),
         conversations: Arc::new(Mutex::new(HashMap::new())),
+        global_context: Arc::new(global_context),
     };
 
     let app = Router::new()
         .route("/", get(serve_index))
         .route("/api/chat", post(handle_chat))
         .route("/api/conversations", get(get_conversations))
-        .route("/api/upload", post(handle_file_upload))
         .nest_service("/static", ServeDir::new("static"))
         .layer(CorsLayer::permissive())
         .with_state(state);
@@ -69,6 +82,13 @@ async fn serve_index() -> Html<&'static str> {
     Html(include_str!("../static/index.html"))
 }
 
+fn extract_document_ids(text: &str) -> Vec<String> {
+    let re = Regex::new(r"(?i)(?:document\s+id|documentid):\s*([a-f0-9]{24})").unwrap();
+    re.captures_iter(text)
+        .map(|cap| cap[1].to_string())
+        .collect()
+}
+
 async fn handle_chat(
     State(state): State<AppState>,
     Json(request): Json<ChatRequest>,
@@ -80,17 +100,19 @@ async fn handle_chat(
     let mut conversations = state.conversations.lock().await;
     let conversation = conversations.entry(conversation_id.clone()).or_insert_with(Vec::new);
 
-    // Create message with files if provided
-    let file_paths = request.files.unwrap_or_default();
-    let message = match create_message_with_files(&request.message, &file_paths) {
-        Ok(msg) => msg,
-        Err(_) => return Err(StatusCode::BAD_REQUEST),
+    // Create simple text message
+    let message = Message {
+        role: "user".to_string(),
+        content: MessageContent::Text(request.message),
     };
 
     conversation.push(message);
 
-    // Send to Claude
-    match state.claude.send_message(conversation).await {
+    // Use global context as system message for all conversations
+    let system_context = Some(state.global_context.as_ref().clone());
+
+    // Send to Claude with system context
+    match state.claude.send_message_with_system(conversation, system_context).await {
         Ok(response) => {
             // Add Claude's response to conversation
             conversation.push(Message {
@@ -98,11 +120,14 @@ async fn handle_chat(
                 content: MessageContent::Text(response.clone()),
             });
 
+            let document_ids = extract_document_ids(&response);
+
             Ok(Json(ChatResponse {
                 response,
                 conversation_id,
                 input_tokens: 0, // You'd need to modify ClaudeClient to return these
                 output_tokens: 0,
+                document_ids,
             }))
         }
         Err(_) => {
@@ -127,25 +152,4 @@ async fn get_conversations(
     } else {
         Json(vec![])
     }
-}
-
-async fn handle_file_upload(
-    mut multipart: Multipart,
-) -> Result<Json<Vec<String>>, StatusCode> {
-    let mut uploaded_files = Vec::new();
-    
-    while let Some(field) = multipart.next_field().await.map_err(|_| StatusCode::BAD_REQUEST)? {
-        if let Some(file_name) = field.file_name().map(|s| s.to_string()) {
-            let data = field.bytes().await.map_err(|_| StatusCode::BAD_REQUEST)?;
-            
-            // Save file to uploads directory
-            let file_path = format!("uploads/{}", file_name);
-            tokio::fs::create_dir_all("uploads").await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-            tokio::fs::write(&file_path, data).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-            
-            uploaded_files.push(file_path);
-        }
-    }
-    
-    Ok(Json(uploaded_files))
 } 

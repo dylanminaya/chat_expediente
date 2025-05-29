@@ -104,73 +104,10 @@
             color: white;
         }
 
-        .file-attachments {
-            margin-top: 10px;
-            padding-top: 10px;
-            border-top: 1px solid rgba(255,255,255,0.2);
-        }
-
-        .file-attachment {
-            display: inline-block;
-            background: rgba(255,255,255,0.2);
-            padding: 5px 10px;
-            border-radius: 10px;
-            margin: 2px;
-            font-size: 12px;
-        }
-
         .chat-input-container {
             padding: 20px;
             background: white;
             border-top: 1px solid #eee;
-        }
-
-        .file-upload-area {
-            margin-bottom: 15px;
-            padding: 15px;
-            border: 2px dashed #ddd;
-            border-radius: 10px;
-            text-align: center;
-            cursor: pointer;
-            transition: all 0.3s ease;
-        }
-
-        .file-upload-area:hover {
-            border-color: #667eea;
-            background: #f8f9ff;
-        }
-
-        .file-upload-area.dragover {
-            border-color: #667eea;
-            background: #f0f4ff;
-        }
-
-        .uploaded-files {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 10px;
-            margin-top: 10px;
-        }
-
-        .uploaded-file {
-            background: #e3f2fd;
-            padding: 8px 12px;
-            border-radius: 20px;
-            font-size: 12px;
-            display: flex;
-            align-items: center;
-            gap: 5px;
-        }
-
-        .remove-file {
-            background: #ff4444;
-            color: white;
-            border: none;
-            border-radius: 50%;
-            width: 16px;
-            height: 16px;
-            cursor: pointer;
-            font-size: 10px;
         }
 
         .input-row {
@@ -235,6 +172,25 @@
             margin-top: 5px;
         }
 
+        .document-ids {
+            background: #f8f9fa;
+            padding: 8px 12px;
+            border-radius: 8px;
+            margin-top: 8px;
+            border-left: 3px solid #667eea;
+            font-size: 12px;
+            color: #333;
+        }
+
+        .document-ids code {
+            background: #e9ecef;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+            font-size: 11px;
+            color: #495057;
+        }
+
         @media (max-width: 768px) {
             .chat-container {
                 height: 95vh;
@@ -251,15 +207,14 @@
     <div class="chat-container">
         <div class="chat-header">
             <h1>🤖 Claude Haiku 3.5 Chat</h1>
-            <p>Upload documents and chat with AI</p>
+            <p>Chat with AI powered by AWS Bedrock</p>
         </div>
         
         <div class="chat-messages" id="chatMessages">
             <div class="message assistant">
                 <div class="message-avatar">🤖</div>
                 <div class="message-content">
-                    Hello! I'm Claude Haiku 3.5. You can chat with me and upload documents for analysis. 
-                    Try uploading a PDF, text file, or any document and ask me questions about it!
+                    Hello! I'm Claude Haiku 3.5 with access to Christopher Adrian Lopez Santos' complete document collection. I can help you analyze his loan application, personal documents, financial information, and any related matters. What would you like to know about his file?
                 </div>
             </div>
         </div>
@@ -269,13 +224,6 @@
         </div>
         
         <div class="chat-input-container">
-            <div class="file-upload-area" id="fileUploadArea">
-                <div>📎 Drop files here or click to upload</div>
-                <input type="file" id="fileInput" multiple style="display: none;" accept=".txt,.md,.json,.csv,.html,.xml,.pdf,.docx">
-            </div>
-            
-            <div class="uploaded-files" id="uploadedFiles"></div>
-            
             <div class="input-row">
                 <textarea 
                     id="messageInput" 
@@ -290,15 +238,11 @@
 
     <script>
         let conversationId = null;
-        let uploadedFiles = [];
 
         // DOM elements
         const chatMessages = document.getElementById('chatMessages');
         const messageInput = document.getElementById('messageInput');
         const sendButton = document.getElementById('sendButton');
-        const fileInput = document.getElementById('fileInput');
-        const fileUploadArea = document.getElementById('fileUploadArea');
-        const uploadedFilesContainer = document.getElementById('uploadedFiles');
         const typingIndicator = document.getElementById('typingIndicator');
 
         // Auto-resize textarea
@@ -315,100 +259,21 @@
             }
         });
 
-        // File upload handling
-        fileUploadArea.addEventListener('click', () => fileInput.click());
-        fileInput.addEventListener('change', handleFileSelect);
-
-        // Drag and drop
-        fileUploadArea.addEventListener('dragover', (e) => {
-            e.preventDefault();
-            fileUploadArea.classList.add('dragover');
-        });
-
-        fileUploadArea.addEventListener('dragleave', () => {
-            fileUploadArea.classList.remove('dragover');
-        });
-
-        fileUploadArea.addEventListener('drop', (e) => {
-            e.preventDefault();
-            fileUploadArea.classList.remove('dragover');
-            handleFileSelect({ target: { files: e.dataTransfer.files } });
-        });
-
         sendButton.addEventListener('click', sendMessage);
-
-        function handleFileSelect(event) {
-            const files = Array.from(event.target.files);
-            files.forEach(file => {
-                if (!uploadedFiles.find(f => f.name === file.name)) {
-                    uploadedFiles.push(file);
-                    addFileToUI(file);
-                }
-            });
-        }
-
-        function addFileToUI(file) {
-            const fileElement = document.createElement('div');
-            fileElement.className = 'uploaded-file';
-            fileElement.innerHTML = `
-                📄 ${file.name}
-                <button class="remove-file" onclick="removeFile('${file.name}')">×</button>
-            `;
-            uploadedFilesContainer.appendChild(fileElement);
-        }
-
-        function removeFile(fileName) {
-            uploadedFiles = uploadedFiles.filter(f => f.name !== fileName);
-            updateFileUI();
-        }
-
-        function updateFileUI() {
-            uploadedFilesContainer.innerHTML = '';
-            uploadedFiles.forEach(file => addFileToUI(file));
-        }
-
-        async function uploadFiles() {
-            if (uploadedFiles.length === 0) return [];
-
-            const formData = new FormData();
-            uploadedFiles.forEach(file => {
-                formData.append('files', file);
-            });
-
-            try {
-                const response = await fetch('/api/upload', {
-                    method: 'POST',
-                    body: formData
-                });
-                
-                if (response.ok) {
-                    const filePaths = await response.json();
-                    return filePaths;
-                }
-            } catch (error) {
-                console.error('File upload failed:', error);
-            }
-            return [];
-        }
 
         async function sendMessage() {
             const message = messageInput.value.trim();
-            if (!message && uploadedFiles.length === 0) return;
+            if (!message) return;
 
             // Disable send button
             sendButton.disabled = true;
             
-            // Upload files first
-            const filePaths = await uploadFiles();
-            
             // Add user message to chat
-            addMessage('user', message, uploadedFiles.map(f => f.name));
+            addMessage('user', message);
             
-            // Clear input and files
+            // Clear input
             messageInput.value = '';
             messageInput.style.height = 'auto';
-            uploadedFiles = [];
-            updateFileUI();
             
             // Show typing indicator
             typingIndicator.classList.add('show');
@@ -421,8 +286,7 @@
                     },
                     body: JSON.stringify({
                         message: message,
-                        conversation_id: conversationId,
-                        files: filePaths
+                        conversation_id: conversationId
                     })
                 });
 
@@ -431,9 +295,10 @@
                     conversationId = data.conversation_id;
                     
                     // Add Claude's response
-                    addMessage('assistant', data.response, [], {
+                    addMessage('assistant', data.response, {
                         input_tokens: data.input_tokens,
-                        output_tokens: data.output_tokens
+                        output_tokens: data.output_tokens,
+                        document_ids: data.document_ids
                     });
                 } else {
                     addMessage('assistant', 'Sorry, I encountered an error. Please try again.');
@@ -447,20 +312,11 @@
             sendButton.disabled = false;
         }
 
-        function addMessage(role, content, files = [], tokenInfo = null) {
+        function addMessage(role, content, tokenInfo = null) {
             const messageDiv = document.createElement('div');
             messageDiv.className = `message ${role}`;
             
             const avatar = role === 'user' ? '👤' : '🤖';
-            let fileAttachments = '';
-            
-            if (files.length > 0) {
-                fileAttachments = `
-                    <div class="file-attachments">
-                        ${files.map(file => `<span class="file-attachment">📄 ${file}</span>`).join('')}
-                    </div>
-                `;
-            }
             
             let tokenDisplay = '';
             if (tokenInfo && (tokenInfo.input_tokens || tokenInfo.output_tokens)) {
@@ -471,11 +327,21 @@
                 `;
             }
             
+            let documentIdsDisplay = '';
+            if (tokenInfo && tokenInfo.document_ids && tokenInfo.document_ids.length > 0) {
+                const docIdsList = tokenInfo.document_ids.map(id => `<code>${id}</code>`).join(', ');
+                documentIdsDisplay = `
+                    <div class="document-ids">
+                        📄 Referenced Documents: ${docIdsList}
+                    </div>
+                `;
+            }
+            
             messageDiv.innerHTML = `
                 <div class="message-avatar">${avatar}</div>
                 <div class="message-content">
                     ${content}
-                    ${fileAttachments}
+                    ${documentIdsDisplay}
                     ${tokenDisplay}
                 </div>
             `;
