@@ -62,6 +62,74 @@ cargo run -- --web --port 3000
 3. **Bedrock Access**: Ensure you have access to Claude Haiku 3.5 in your AWS region
 4. **Rust**: Make sure you have Rust installed
 
+## Document Fetching Configuration
+
+The application can automatically fetch documents when Claude references them in responses. To configure this:
+
+1. **Set the Document API Endpoint**: 
+   ```bash
+   export DOCUMENT_API_BASE_URL="https://cloudx.prodoctivity.com/api"
+   ```
+
+2. **Set the Authentication Token**: 
+   ```bash
+   export PRODOCTIVITY_TOKEN="your-jwt-token-here"
+   ```
+
+3. **Or use a .env file** (recommended):
+   ```bash
+   # Create a .env file in the project root
+   DOCUMENT_API_BASE_URL=https://cloudx.prodoctivity.com/api
+   PRODOCTIVITY_TOKEN=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+   ```
+
+4. **Expected API Format**: Your document API should accept requests like:
+   ```
+   GET {DOCUMENT_API_BASE_URL}/documents/{document_id}/versions/{version_id}
+   Authorization: Bearer {PRODOCTIVITY_TOKEN}
+   ```
+
+5. **Response Format**: The API should return the document content as plain text.
+
+### How Document Fetching Works
+
+1. **Claude Response**: When Claude mentions documents with IDs like:
+   - "Document ID: 68371449b15db0ce743c25b3"
+   - "Document Version ID: 68371449b15db0ce743c25b3"
+
+2. **Automatic Detection**: The app extracts both document ID and version ID from the response
+
+3. **UI Indicators**: Document references appear with "Fetch Document" buttons
+
+4. **Authenticated Requests**: The app automatically includes your PRODOCTIVITY_TOKEN as a Bearer token
+
+5. **One-Click Fetching**: Click the "Fetch Document" button to fetch and display the document content inline
+
+6. **Status Updates**: Real-time status shows fetching progress, success, or errors
+
+### Document API Response Format
+
+The application expects document API responses in this format:
+
+```json
+{
+  "content": "Document text content...",
+  "binaries": [
+    "data:application/pdf;base64,JVBERi0xLjQKMSAwIG9iago8PAovVHlwZSAvQ2F0YWxvZwo..."
+  ]
+}
+```
+
+- **content**: Text content of the document
+- **binaries**: Array of base64-encoded binary data with MIME type prefixes (for future use)
+
+### Authentication Error Handling
+
+The application provides specific error messages for common authentication issues:
+- **401 Unauthorized**: "Authentication failed - please check your PRODOCTIVITY_TOKEN"
+- **403 Forbidden**: "Access forbidden - insufficient permissions"
+- **404 Not Found**: "Document not found"
+
 ## Supported Document Types
 
 | Format | Extension | Status | Use Case |

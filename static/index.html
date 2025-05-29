@@ -191,6 +191,71 @@
             color: #495057;
         }
 
+        .document-references {
+            background: #f8f9fa;
+            padding: 12px;
+            border-radius: 8px;
+            margin-top: 8px;
+            border-left: 3px solid #667eea;
+            font-size: 12px;
+            color: #333;
+        }
+
+        .document-reference {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 8px 0;
+            border-bottom: 1px solid #e9ecef;
+        }
+
+        .document-reference:last-child {
+            border-bottom: none;
+        }
+
+        .document-info {
+            flex: 1;
+            font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+            font-size: 11px;
+        }
+
+        .document-info code {
+            background: #e9ecef;
+            padding: 2px 6px;
+            border-radius: 4px;
+            color: #495057;
+            margin-right: 8px;
+        }
+
+        .document-actions {
+            display: flex;
+            gap: 8px;
+        }
+
+        .fetch-btn {
+            padding: 4px 8px;
+            border: none;
+            border-radius: 4px;
+            font-size: 10px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            font-weight: 500;
+        }
+
+        .fetch-btn {
+            background: #28a745;
+            color: white;
+        }
+
+        .fetch-btn:hover {
+            background: #218838;
+        }
+
+        .fetch-btn:disabled {
+            background: #6c757d;
+            cursor: not-allowed;
+        }
+
         @media (max-width: 768px) {
             .chat-container {
                 height: 95vh;
@@ -298,7 +363,7 @@
                     addMessage('assistant', data.response, {
                         input_tokens: data.input_tokens,
                         output_tokens: data.output_tokens,
-                        document_ids: data.document_ids
+                        document_references: data.document_references
                     });
                 } else {
                     addMessage('assistant', 'Sorry, I encountered an error. Please try again.');
@@ -327,12 +392,26 @@
                 `;
             }
             
-            let documentIdsDisplay = '';
-            if (tokenInfo && tokenInfo.document_ids && tokenInfo.document_ids.length > 0) {
-                const docIdsList = tokenInfo.document_ids.map(id => `<code>${id}</code>`).join(', ');
-                documentIdsDisplay = `
-                    <div class="document-ids">
-                        📄 Referenced Documents: ${docIdsList}
+            let documentReferencesDisplay = '';
+            if (tokenInfo && tokenInfo.document_references && tokenInfo.document_references.length > 0) {
+                const docRefsHtml = tokenInfo.document_references.map(ref => `
+                    <div class="document-reference">
+                        <div class="document-info">
+                            <code>Doc: ${ref.document_id}</code>
+                            <code>Ver: ${ref.version_id}</code>
+                        </div>
+                        <div class="document-actions">
+                            <button class="fetch-btn" onclick="fetchDocument('${ref.document_id}', '${ref.version_id}')">
+                                Fetch Document
+                            </button>
+                        </div>
+                    </div>
+                `).join('');
+                
+                documentReferencesDisplay = `
+                    <div class="document-references">
+                        📄 Referenced Documents:
+                        ${docRefsHtml}
                     </div>
                 `;
             }
@@ -341,7 +420,7 @@
                 <div class="message-avatar">${avatar}</div>
                 <div class="message-content">
                     ${content}
-                    ${documentIdsDisplay}
+                    ${documentReferencesDisplay}
                     ${tokenDisplay}
                 </div>
             `;
@@ -354,6 +433,71 @@
         window.addEventListener('load', () => {
             messageInput.focus();
         });
+
+        // Document handling functions
+        async function fetchDocument(documentId, versionId) {
+            console.log(`Fetching document: ${documentId}, version: ${versionId}`);
+            
+            try {
+                const response = await fetch(`/api/document?document_id=${documentId}&version_id=${versionId}`);
+                const data = await response.json();
+                
+                if (data.success) {
+                    console.log('Document fetched successfully:', data);
+                    
+                    // Extract the base64 content
+                    let base64Content = null;
+                    
+                    if (data.binaries && data.binaries.length > 0) {
+                        const binaryData = data.binaries[0];
+                        if (binaryData.startsWith('data:application/pdf;base64,')) {
+                            base64Content = binaryData; // Keep the full data URL
+                        } else {
+                            base64Content = `data:application/pdf;base64,${binaryData}`;
+                        }
+                    }
+                    
+                    if (base64Content) {
+                        // Convert base64 to blob and create object URL
+                        const base64Data = base64Content.split(',')[1];
+                        const binaryString = atob(base64Data);
+                        const bytes = new Uint8Array(binaryString.length);
+                        for (let i = 0; i < binaryString.length; i++) {
+                            bytes[i] = binaryString.charCodeAt(i);
+                        }
+                        const blob = new Blob([bytes], { type: 'application/pdf' });
+                        const pdfUrl = URL.createObjectURL(blob);
+                        
+                        const pdfDisplay = `
+                            <div style="border: 1px solid #ddd; border-radius: 8px; overflow: hidden; margin: 10px 0;">
+                                <div style="background: #f5f5f5; padding: 10px; border-bottom: 1px solid #ddd;">
+                                    <strong>📄 Document: ${documentId}</strong>
+                                    <div style="margin-top: 5px;">
+                                        <a href="${pdfUrl}" download="document_${documentId}.pdf" style="margin-right: 10px; color: #007bff; text-decoration: none;">
+                                            📥 Download PDF
+                                        </a>
+                                        <a href="${pdfUrl}" target="_blank" style="color: #007bff; text-decoration: none;">
+                                            🔗 Open in New Tab
+                                        </a>
+                                    </div>
+                                </div>
+                                <embed src="${pdfUrl}" type="application/pdf" width="100%" height="600px" style="border: none;">
+                            </div>
+                        `;
+                        
+                        addMessage('assistant', pdfDisplay);
+                    } else {
+                        addMessage('assistant', `❌ No PDF content found in document ${documentId}`);
+                    }
+                } else {
+                    console.error('Failed to fetch document:', data.error);
+                    addMessage('assistant', `❌ Failed to fetch document: ${data.error}`);
+                }
+            } catch (error) {
+                console.error('Error fetching document:', error);
+                addMessage('assistant', `❌ Error fetching document: ${error.message}`);
+            }
+        }
     </script>
 </body>
 </html> 

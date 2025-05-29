@@ -7,6 +7,9 @@ use claude::ClaudeClient;
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    // Load environment variables from .env file
+    dotenv::dotenv().ok();
+    
     let region = "us-east-1";
     let port = 3000;
     

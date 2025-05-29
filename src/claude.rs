@@ -95,10 +95,6 @@ impl ClaudeClient {
         }
     }
     
-    pub async fn send_message(&self, messages: &[Message]) -> Result<String> {
-        self.send_message_with_system(messages, None).await
-    }
-    
     pub async fn send_message_with_system(&self, messages: &[Message], system: Option<String>) -> Result<String> {
         let request = ClaudeRequest {
             anthropic_version: "bedrock-2023-05-31".to_string(),
